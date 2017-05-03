@@ -159,10 +159,10 @@ extern "C"
 #define asw3    2000
 //
 // Color definitions for the TFT screen (if used)
-#define	BLACK   0x0000
-#define	BLUE    0xF800
-#define	RED     0x001F
-#define	GREEN   0x07E0
+#define  BLACK   0x0000
+#define BLUE    0xF800
+#define RED     0x001F
+#define GREEN   0x07E0
 #define CYAN    GREEN | BLUE
 #define MAGENTA RED | BLUE
 #define YELLOW  RED | GREEN
@@ -252,6 +252,7 @@ char             cmd[130] ;                                // Command from MQTT 
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 #endif
 Ticker           tckr ;                                    // For timing 100 msec
+TinyXML          xml;                                      // For XML parser.
 uint32_t         totalcount = 0 ;                          // Counter mp3 data
 datamode_t       datamode ;                                // State of datastream
 int              metacount ;                               // Number of bytes in metadata
@@ -287,7 +288,7 @@ bool             localfile = false ;                       // Play from local mp
 bool             chunked = false ;                         // Station provides chunked transfer
 int              chunkcount = 0 ;                          // Counter for chunked transfer
 // XML IHeartRadio Globals.
-const char* ihrhost = "playerservices.streamtheworld.com"; // XML data source.
+const char* xmlhost = "playerservices.streamtheworld.com"; // XML data source.
 const char* apiVersion   = "1.5"; // API Version of IHeartRadio.
 const char* mountPoint = "CIMXFMAAC"; // Testing MountPoint (Station Callsign).
 const char* lang = "en"; // Language.
@@ -1062,15 +1063,15 @@ String iheartradio( String mount ) {
   urlin += "&lang=";
   urlin += lang;
   Serial.print("http://");
-  Serial.print(ihrhost);
+  Serial.print(xmlhost);
   Serial.print(":");
   Serial.print(xmlPort);
   Serial.println(urlin);
   // Connect to IHeartRadio.
-  if (mp3client.connect (ihrhost, xmlPort ) ) {
+  if (mp3client.connect (xmlhost, xmlPort ) ) {
     Serial.println("Connected");
-    xmlclient.print( String("GET ") + urlin + " HTTP/1.1\r\n" +
-                     "Host: " + ihrhost + "\r\n" +
+    mp3client.print( String("GET ") + urlin + " HTTP/1.1\r\n" +
+                     "Host: " + xmlhost + "\r\n" +
                      "Connection: close\r\n\r\n");
     // Check for XML Data.
     while (true) {
@@ -1132,14 +1133,14 @@ String iheartradio( String mount ) {
     urlout += "_CS";
     Serial.println(urlout);
     xmlDataLast = xmlData;
+    Serial.println("closing connection");
+    return urlout; // Return final streaming URL.
   } else {
     Serial.println ("Not Connected to IHR");
   }
   //if (Serial.available()) {
     //xml.processChar(Serial.read());
   //}
-  Serial.println("closing connection");
-  return urlout; // Return final streaming URL.
 }
 
 //******************************************************************************************
@@ -2953,4 +2954,3 @@ void handleCmd ( AsyncWebServerRequest* request )
   //  ESP.restart() ;                                   // Last resource
   //}
 }
-
