@@ -40,7 +40,7 @@
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
-// changed to use the fFull screenwidth if rotated to mode "3".  Now there is room for 26
+// changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
 // characters per line and 16 lines.  Software will work without installing the display.
 // If no TFT is used, you may use GPIO2 and GPIO15 as control buttons.  See definition of "USETFT" below.
 // Switches are than programmed as:
@@ -119,9 +119,10 @@
 // 30-01-2017, ES: Allow chunked transfer encoding.
 // 01-02-2017, ES: Bugfix file upload.
 // 26-04-2017, ES: Better output webinterface on preset change.
+// 03-05-2017, ES: Prevent to start inputstream if no network.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 26 Apr 2017 08:45:00 GMT"
+#define VERSION "Wed, 03 May 2017 10:45:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -209,6 +210,7 @@ char*  analyzeCmd ( const char* str ) ;
 char*  analyzeCmd ( const char* par, const char* val ) ;
 String chomp ( String str ) ;
 void   publishIP() ;
+String xmlparse ( String mount );
 
 //
 //******************************************************************************************
@@ -265,6 +267,7 @@ int              metaint = 0 ;                             // Number of databyte
 int8_t           currentpreset = -1 ;                      // Preset station playing
 String           host ;                                    // The URL to connect to or file to play
 String           playlist ;                                // The URL of the specified playlist
+bool             xmlreq = false ;                          // Request for XML parse.
 bool             hostreq = false ;                         // Request for new host
 bool             reqtone = false ;                         // New tone setting requested
 bool             muteflag = false ;                        // Mute output
@@ -287,20 +290,21 @@ File             mp3file  ;                                // File containing mp
 bool             localfile = false ;                       // Play from local mp3-file or not
 bool             chunked = false ;                         // Station provides chunked transfer
 int              chunkcount = 0 ;                          // Counter for chunked transfer
-// XML IHeartRadio Globals.
-const char* xmlhost = "playerservices.streamtheworld.com"; // XML data source.
-const char* apiVersion   = "1.5"; // API Version of IHeartRadio.
-const char* mountPoint = "CIMXFMAAC"; // Testing MountPoint (Station Callsign).
-const char* lang = "en"; // Language.
-const int   xmlPort = 80; // XML Port.
-uint8_t     xmlbuffer[150]; // For XML decoding.
-String xmlOpen; // Opening XML tag.
-String xmlTag; // Current XML tag.
-String xmlData; // Data inside tag.
-String xmlDataLast; // Prevents duplicated tag data.
-String stationServer(""); // Radio stream server.
-String stationPort(""); // Radio stream port.
-String stationMount(""); // Radio stream Callsign.
+
+// XML parse globals.
+const char* xmlhost = "playerservices.streamtheworld.com" ;// XML data source.
+const char* apiVersion   = "1.5" ;                         // API Version of IHeartRadio.
+String  mountPoint = "IHR_TRAN" ;                          // Testing MountPoint (Station Callsign).
+const char* lang = "en" ;                                  // Language.
+int     xmlport = 80 ;                                     // XML Port.
+uint8_t xmlbuffer[150] ;                                   // For XML decoding.
+String  xmlOpen ;                                          // Opening XML tag.
+String  xmlTag ;                                           // Current XML tag.
+String  xmlData ;                                          // Data inside tag.
+String  xmlDataLast ;                                      // Prevents duplicated tag data.
+String  stationServer( "" ) ;                              // Radio stream server.
+String  stationPort( "" ) ;                                // Radio stream port.
+String  stationMount( "" ) ;                               // Radio stream Callsign.
 
 //******************************************************************************************
 // End of global data section.                                                             *
@@ -996,153 +1000,6 @@ void testfile ( String fspec )
   }
 }
 
-//******************************************************************************************
-//                                  X M L  C A L L B A C K                                 *
-//******************************************************************************************
-// Process XML tags into variables.                                                          *
-//******************************************************************************************
-void XML_callback( uint8_t statusflags, char* tagName,  uint16_t tagNameLen,  char* data,  uint16_t dataLen )
-{
-  if (statusflags & STATUS_START_TAG)
-  {
-    if ( tagNameLen )
-    {
-      xmlOpen = String(tagName);
-      //Serial.print("Start tag ");
-      //Serial.println(tagName);
-    }
-  }
-  else if  (statusflags & STATUS_END_TAG)
-  {
-    //Serial.print("End tag ");
-    //Serial.println(tagName);
-  }
-  else if  (statusflags & STATUS_TAG_TEXT)
-  {
-    xmlTag = String(tagName);
-    xmlData = String(data);
-    //Serial.print("Tag:");
-    //Serial.print(tagName);
-    //Serial.print(" text:");
-    //Serial.println(data);
-  }
-  else if  (statusflags & STATUS_ATTR_TEXT)
-  {
-    //Serial.print("Attribute:");
-    //Serial.print(tagName);
-    //Serial.print(" text:");
-    //Serial.println(data);
-  }
-  else if  (statusflags & STATUS_ERROR)
-  {
-    //Serial.print("XML Parsing error  Tag:");
-    //Serial.print(tagName);
-    //Serial.print(" text:");
-    //Serial.println(data);
-  }
-}
-
-//******************************************************************************************
-//                                  I  H E A R T  R A D I O                                *
-//******************************************************************************************
-// Parses streams from IHeartRadio XML data.                                              *
-//******************************************************************************************
-String iheartradio( String mount ) {
-  // Example URL for XML Data Stream:
-  // http://playerservices.streamtheworld.com/api/livestream?version=1.5&mount=CIMXFMAAC&lang=en
-  String urlout;
-  stop_mp3client() ; // Stop any current wificlient connections.
-  // Create a URI for the request.
-  // Build API URL.
-  Serial.print("Connecting to url ");
-  String urlin = "/api/";
-  urlin += "livestream";
-  urlin += "?version=";
-  urlin += apiVersion;
-  urlin += "&mount=";
-  urlin += mount;
-  urlin += "&lang=";
-  urlin += lang;
-  Serial.print("http://");
-  Serial.print(xmlhost);
-  Serial.print(":");
-  Serial.print(xmlPort);
-  Serial.println(urlin);
-  // Connect to IHeartRadio.
-  if (mp3client.connect (xmlhost, xmlPort ) ) {
-    Serial.println("Connected");
-    mp3client.print( String("GET ") + urlin + " HTTP/1.1\r\n" +
-                     "Host: " + xmlhost + "\r\n" +
-                     "Connection: close\r\n\r\n");
-    // Check for XML Data.
-    while (true) {
-      if (mp3client.available()) {
-        char c = mp3client.read();
-        //xml.processChar(c);
-        //Serial.print(c);
-        if (c=='<') {
-          c=mp3client.read();
-          if (c=='?') {
-            xml.processChar('<');
-            xml.processChar('?');
-            break;
-          }
-        }
-      }
-    }
-    Serial.println("Waiting for response");
-    // Process XML Data.
-    while (true) {
-      if (mp3client.available()) {
-        char c = mp3client.read();
-        xml.processChar(c);
-        if (xmlTag != "") {
-          if (xmlTag.endsWith(F("/ip"))) {
-            stationServer = xmlData;
-            //Serial.println(stationServer);
-          }else if (xmlTag.endsWith(F("/port"))) {
-            stationPort = xmlData;
-            //Serial.println(stationPort);
-          }else if (xmlTag.endsWith(F("/mount"))) {
-            stationMount = xmlData;
-            //Serial.println(stationMount);
-          }
-        }
-        //xml.reset();
-        //Serial.print(c);
-      }
-      // Check if we have all the station values stored.
-      if (stationServer != "" && stationPort != "" && stationMount != "") {
-        break;
-      }
-    }
-    //delay(1000);
-    //Serial.print("http://");
-    //Serial.print(stationServer);
-    //Serial.print(":");
-    //Serial.print(stationPort);
-    //Serial.print("/");
-    //Serial.print(stationMount);
-    //Serial.println("_CS");
-    // Build URL for Esp-radio to stream.
-    urlout = "http://";
-    urlout += stationServer;
-    urlout += ":";
-    urlout += stationPort;
-    urlout += "/";
-    urlout += stationMount;
-    urlout += "_CS";
-    Serial.println(urlout);
-    xmlDataLast = xmlData;
-  } else {
-    Serial.println ("Not Connected to IHR");
-  }
-  //if (Serial.available()) {
-    //xml.processChar(Serial.read());
-  //}
-  Serial.println("closing connection");
-  return urlout; // Return final streaming URL.
-}
 
 //******************************************************************************************
 //                                  T I M E R 1 0 0                                        *
@@ -1707,7 +1564,7 @@ void scanserial()
 // The result will be stored in anetworks like "|SSID1|SSID2|......|SSIDN|".               *
 // The number of acceptable networks will be stored in num_an.                             *
 //******************************************************************************************
-void  mk_lsan()
+void mk_lsan()
 {
   String      path ;                                   // Full file spec as string
   File        inifile ;                                // File containing URL with mp3
@@ -1872,6 +1729,7 @@ void setup()
   tckr.attach ( 0.100, timer100 ) ;                    // Every 100 msec
   dbgprint ( "Selected network: %-25s", ini_block.ssid.c_str() ) ;
   NetworkFound = connectwifi() ;                       // Connect to WiFi network
+  //NetworkFound = false ;                             // TEST, uncomment for no network test
   dbgprint ( "Start server for commands" ) ;
   cmdserver.on ( "/", handleCmd ) ;                    // Handle startpage
   cmdserver.onNotFound ( handleFS ) ;                  // Handle file from FS
@@ -1906,10 +1764,186 @@ void setup()
       mqttclient.connect();
     }
   }
+  else
+  {
+    currentpreset = ini_block.newpreset ;              // No network: do not start radio
+  }
   delay ( 1000 ) ;                                     // Show IP for a wile
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
 }
 
+
+//******************************************************************************************
+//                                  X M L  C A L L B A C K                                 *
+//******************************************************************************************
+// Process XML tags into variables.                                                          *
+//******************************************************************************************
+void XML_callback ( uint8_t statusflags, char* tagName,  uint16_t tagNameLen,  char* data,  uint16_t dataLen )
+{
+  if ( statusflags & STATUS_START_TAG )
+  {
+    if ( tagNameLen )
+    {
+      xmlOpen = String( tagName ) ;
+      //Serial.print( "Start tag " ) ;
+      //Serial.println( tagName ) ;
+    }
+  }
+  else if ( statusflags & STATUS_END_TAG )
+  {
+    //Serial.print( "End tag " ) ;
+    //Serial.println( tagName ) ;
+  }
+  else if ( statusflags & STATUS_TAG_TEXT )
+  {
+    xmlTag = String( tagName ) ;
+    xmlData = String( data ) ;
+    //Serial.print( "Tag:" ) ;
+    //Serial.print( tagName ) ;
+    //Serial.print( " text:" ) ;
+    //Serial.println( data ) ;
+  }
+  else if ( statusflags & STATUS_ATTR_TEXT )
+  {
+    //Serial.print( "Attribute:" ) ;
+    //Serial.print( tagName ) ;
+    //Serial.print( " text:" ) ;
+    //Serial.println( data ) ;
+  }
+  else if  ( statusflags & STATUS_ERROR )
+  {
+    //Serial.print( "XML Parsing error  Tag:" ) ;
+    //Serial.print( tagName ) ;
+    //Serial.print( " text:" ) ;
+    //Serial.println( data ) ;
+  }
+}
+
+//******************************************************************************************
+//                                  X M L  P A R S E                                       *
+//******************************************************************************************
+// Parses streams from XML data.                                                           *
+//******************************************************************************************
+String xmlparse ( String mount ) {
+  // Example URL for XML Data Stream:
+  // http://playerservices.streamtheworld.com/api/livestream?version=1.5&mount=IHR_TRANAAC&lang=en
+  // Clear all variables for use.
+  String urlin = "" ;
+  String urlout = "" ;
+  String urlsite = "" ;
+  stationServer = "" ;
+  stationPort = "" ;
+  stationMount = "" ;
+  xmlTag = "" ;
+  xmlData = "" ;
+  xmlDataLast = "" ;
+  char c() ;
+  
+  stop_mp3client() ; // Stop any current wificlient connections.
+  dbgprint ( "Connect to new host: %s", mount.c_str() ) ;
+  //displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
+  datamode = INIT ;                                 // Start default in metamode
+  chunked = false ;                                 // Assume not chunked
+  // Create a URI for the request.
+  // Build API URL.
+  urlin = "/api/" ;
+  urlin += "livestream" ;
+  urlin += "?version=" ;
+  urlin += apiVersion ;
+  urlin += "&mount=" ;
+  urlin += mount + "AAC" ;
+  urlin += "&lang=" ;
+  urlin += lang ;
+  // Build full site url.
+  urlsite = "http://" ;
+  urlsite += xmlhost ;
+  urlsite += ":" ;
+  urlsite += xmlport ;
+  urlsite += urlin ;
+  dbgprint ( "Connecting to url: %s", urlsite.c_str() ) ;
+  // Connect to XML stream.
+  if ( mp3client.connect ( xmlhost, xmlport ) ) {
+    dbgprint ( "Connected!" ) ;
+    mp3client.print( String( "GET " ) + urlin + " HTTP/1.1\r\n" +
+                     "Host: " + xmlhost + "\r\n" +
+                     "User-Agent: Mozilla/5.0\r\n" +
+                     "Connection: close\r\n\r\n") ;
+    // Check for XML Data.
+    while ( true )
+    {
+      if ( mp3client.available() )
+      {
+        char c = mp3client.read() ;
+        if ( c=='<' )
+        {
+          c=mp3client.read() ;
+          if ( c=='?' )
+          {
+            xml.processChar( '<' ) ;
+            xml.processChar( '?' ) ;
+            break ;
+          }
+        }
+      }
+      yield() ;
+    }
+    dbgprint ( "XML parser processing..." ) ;
+    // Process XML Data.
+    while (true) 
+    {
+      if ( mp3client.available() )
+      {
+        char c = mp3client.read() ;
+        xml.processChar( c ) ;
+        if ( xmlTag != "" )
+        {
+          if ( xmlTag.endsWith( F( "/ip" ) ) )
+          {
+            stationServer = xmlData ;
+          }
+          else if (xmlTag.endsWith( F( "/port" ) ) )
+          {
+            stationPort = xmlData ;
+          }
+          else if (xmlTag.endsWith( F( "/mount" ) ) )
+          {
+            stationMount = xmlData ;
+          }
+        }
+      }
+      // Check if all the station values are stored.
+      if ( stationServer != "" && stationPort != "" && stationMount != "" )
+      {
+        xml.reset() ;
+        break ;
+      }
+      yield() ;
+    }
+    // Build URL for ESP-Radio to stream.
+    //urlout = "http://";
+    urlout += stationServer ;
+    urlout += ":" ;
+    urlout += stationPort ;
+    urlout += "/" ;
+    urlout += stationMount ;
+    urlout += "_SC" ;
+    dbgprint ( "Found: %s", urlout.c_str() ) ;
+    xmlDataLast = xmlData ;
+    dbgprint ( "Closing XML connection." ) ;
+    //return urlout; // Return final streaming URL.
+  }
+  else
+  {
+    dbgprint ( "Can't connect to XML host!" );
+  }
+  /*
+  if ( Serial.available() )
+  {
+    xml.processChar( Serial.read() ) ;
+  }
+  */
+  return urlout; // Return final streaming URL.
+}
 
 //******************************************************************************************
 //                                   L O O P                                               *
@@ -2049,6 +2083,12 @@ void loop()
     {
       connecttohost() ;                                 // Switch to new host
     }
+  }
+  if ( xmlreq )
+  {
+     xmlreq = false ;
+     host = xmlparse( mountPoint ) ;
+     connecttohost() ;
   }
   if ( reqtone )                                        // Request to change tone?
   {
@@ -2744,7 +2784,6 @@ char* analyzeCmd ( const char* par, const char* val )
   {
     if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
-
     {
       datamode = STOPREQD ;                           // Request STOP
     }
@@ -2761,12 +2800,11 @@ char* analyzeCmd ( const char* par, const char* val )
     {
       datamode = STOPREQD ;                           // Request STOP
     }
-    
-    host = iheartradio(value);//value ;                                    // Save it for storage and selection later
-    hostreq = true ;                                  // Force this station as new preset
+    mountPoint = value ;                              // Save it for storage and selection later
+    xmlreq = true ;                                   // Run XML parsing process.
     sprintf ( reply,
               "New preset station %s accepted",       // Format reply
-              host.c_str() ) ;
+              mountPoint.c_str() ) ;
   }
   else if ( argument == "status" )                    // Status request
   {
