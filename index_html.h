@@ -38,6 +38,20 @@ const char index_html[] PROGMEM = R"=====(
      </center></td>
     </tr>
     <tr>
+     <td colspan="2"><center>
+       <label for="selxml"><big>iHeartRadio:</big></label>
+       <br>
+       <select class="select selectw" onChange="handlexml(this)" id="selxml">
+         <option value="-1">Select an iHeartRadio station here</option>
+         <option value="1">IHR_TRAN</option>
+         <option value="2">CIMXFM</option>
+         <option value="3">IHR_IEDM</option>
+         <option value="3">CKMXAM</option>
+       </select>
+       <br><br>
+     </center></td>
+    </tr>
+    <tr>
      <td><center>
       <label for="HA"><big>Treble Gain:</big></label>
       <br>
@@ -162,6 +176,14 @@ const char index_html[] PROGMEM = R"=====(
     if ( presctrl.value >= 0 )
     {
       httpGet ( "preset=" + presctrl.value ) ;
+    }
+   }
+
+   function handlexml ( xmlctrl )
+   {
+    if ( xmlctrl.value >= 0 )
+    {
+      httpGet ( "xml=" + xmlctrl.options[xmlctrl.selectedIndex].text ) ;
     }
    }
 
