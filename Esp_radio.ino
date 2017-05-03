@@ -40,7 +40,7 @@
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
-// changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
+// changed to use the fFull screenwidth if rotated to mode "3".  Now there is room for 26
 // characters per line and 16 lines.  Software will work without installing the display.
 // If no TFT is used, you may use GPIO2 and GPIO15 as control buttons.  See definition of "USETFT" below.
 // Switches are than programmed as:
@@ -1050,6 +1050,7 @@ void XML_callback( uint8_t statusflags, char* tagName,  uint16_t tagNameLen,  ch
 String iheartradio( String mount ) {
   // Example URL for XML Data Stream:
   // http://playerservices.streamtheworld.com/api/livestream?version=1.5&mount=CIMXFMAAC&lang=en
+  String urlout;
   stop_mp3client() ; // Stop any current wificlient connections.
   // Create a URI for the request.
   // Build API URL.
@@ -1124,7 +1125,7 @@ String iheartradio( String mount ) {
     //Serial.print(stationMount);
     //Serial.println("_CS");
     // Build URL for Esp-radio to stream.
-    String urlout = "http://";
+    urlout = "http://";
     urlout += stationServer;
     urlout += ":";
     urlout += stationPort;
@@ -1133,14 +1134,14 @@ String iheartradio( String mount ) {
     urlout += "_CS";
     Serial.println(urlout);
     xmlDataLast = xmlData;
-    Serial.println("closing connection");
-    return urlout; // Return final streaming URL.
   } else {
     Serial.println ("Not Connected to IHR");
   }
   //if (Serial.available()) {
     //xml.processChar(Serial.read());
   //}
+  Serial.println("closing connection");
+  return urlout; // Return final streaming URL.
 }
 
 //******************************************************************************************
